@@ -1,0 +1,8 @@
+{
+  "name": "Mes Archives Familiales",
+  "description": "Une application web pour numériser, analyser avec Gemini, et archiver des objets familiaux et historiques vers n8n.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}
