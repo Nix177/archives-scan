@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Archive {
+  id                    String   @id @default(uuid())
+  titre                 String
+  categorie             String
+  description_detaillee String   @db.Text
+  date_estimee          String
+  createur_artiste      String
+  provenance            String
+  etat_conservation     String
+  notes_historiques     String   @db.Text
+  pistes_recherche      String   @db.Text
+  imageUrl              String?  @db.LongText
+  createdAt             DateTime @default(now())
+}

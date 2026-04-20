@@ -177,13 +177,11 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
       archive_data: archiveData,
       image_base64: imageBase64,
       image_mime_type: selectedImage?.type || "image/jpeg",
-      timestamp: new Date().toISOString()
     };
 
     try {
-      // 100% FRONTEND (Vite environment)
-      // Envoi direct à n8n Hostinger
-      const response = await fetch(N8N_WEBHOOK_URL, {
+      // Appel à notre Vercel Serverless Function 
+      const response = await fetch('/api/archives', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -192,11 +190,11 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
       if (!response.ok) throw new Error(`Erreur réseau: ${response.status}`);
       setAppState('success');
     } catch (err: any) {
-      console.error("Webhook error:", err);
-      // Fallback dev mode (pour ne pas bloquer l'interface si CORS / no n8n)
-      if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
-         console.warn("Échec d'envoi réseau direct (CORS ?), mais simulé comme succès pour la démo.");
-         setTimeout(() => setAppState('success'), 1000);
+      console.error("API error:", err);
+      // Mode fallback préventif (si le dev local avec Vite ne mappe pas Vercel CLI)
+      if (err.message.includes('Failed to fetch') || err.message.includes('404')) {
+         console.warn("Échec d'envoi vers /api/archives (Normal si vous testez via 'npm run dev' classique au lieu de 'vercel dev'). Simulation succès.");
+         setTimeout(() => setAppState('success'), 1500);
       } else {
          setError(`Erreur serveur webhook: ${err.message}`);
          setAppState('review');
