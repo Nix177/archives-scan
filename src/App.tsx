@@ -1,13 +1,6 @@
 import { useState, useRef, ChangeEvent, useCallback } from 'react';
-import { Camera, ImageUp, CheckCircle, Loader2, RotateCcw, Box, ArrowRight, X } from 'lucide-react';
-import { GoogleGenAI, Type } from '@google/genai';
+import { Camera, ImageUp, Loader2, RotateCcw, Box, ArrowRight, X } from 'lucide-react';
 import Webcam from 'react-webcam';
-
-// --- CONFIGURATION ---
-// Clé API Gemini (à définir dans .env)
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-// L'URL de votre Webhook n8n (Hostinger)
-const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://n8n.srv893937.hstgr.cloud/webhook-test/archives';
 
 interface ArchiveData {
   titre: string;
@@ -21,7 +14,7 @@ interface ArchiveData {
   pistes_recherche: string;
 }
 
-type AppState = 'upload' | 'webcam' | 'analyzing' | 'review' | 'submitting' | 'success';
+type AppState = 'upload' | 'webcam' | 'review' | 'submitting' | 'success';
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('upload');
@@ -30,9 +23,6 @@ export default function App() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [archiveData, setArchiveData] = useState<ArchiveData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
-  const [useAI, setUseAI] = useState<boolean>(false);
-  const [customPrompt, setCustomPrompt] = useState<string>('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const webcamRef = useRef<Webcam>(null);
@@ -44,8 +34,6 @@ export default function App() {
     setImagePreview(null);
     setArchiveData(null);
     setError(null);
-    setUseAI(false);
-    setCustomPrompt('');
   };
 
   const processImageFile = async (file: File) => {
@@ -61,21 +49,13 @@ export default function App() {
       const base64Data = base64.split(',')[1];
       setImageBase64(base64Data);
       
-      if (useAI) {
-        if (!GEMINI_API_KEY) {
-          setError("La clé d'API Gemini n'est pas configurée dans VITE_GEMINI_API_KEY.");
-          setAppState('upload');
-          return;
-        }
-        analyzeImage(base64Data, file.type);
-      } else {
-        // Mode manuel, créer un objet vide
-        setArchiveData({
-          titre: '', categorie: '', description_detaillee: '', date_estimee: '',
-          createur_artiste: '', provenance: '', etat_conservation: '', notes_historiques: '', pistes_recherche: ''
-        });
-        setAppState('review');
-      }
+      // Mode manuel, créer un objet vide
+      setArchiveData({
+        titre: '', categorie: '', description_detaillee: '', date_estimee: '',
+        createur_artiste: '', provenance: '', etat_conservation: '', notes_historiques: '', pistes_recherche: ''
+      });
+      setAppState('review');
+
     } catch (err) {
       console.error("Error converting file:", err);
       setError("Impossible de lire l'image. Veuillez réessayer.");
@@ -101,7 +81,7 @@ export default function App() {
           processImageFile(file);
         });
     }
-  }, [webcamRef, useAI, customPrompt]);
+  }, [webcamRef]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -110,56 +90,6 @@ export default function App() {
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = (error) => reject(error);
     });
-  };
-
-  const analyzeImage = async (base64Data: string, mimeType: string) => {
-    setAppState('analyzing');
-    try {
-      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-      
-      const systemPrompt = `Tu es un expert en archivistique chargé d'assister la numérisation d'un objet historique. Analyse l'image et propose un premier brouillon des informations de l'objet au format JSON strict. 
-IMPORTANT : L'utilisateur devra vérifier toutes tes propositions avant de les sauvegarder. Pour l'aider, fournis dans le champ 'pistes_recherche' des méthodes concrètes pour valider tes hypothèses avec des outils externes (ex: "Utilisez Google Lens sur le poinçon", "Recherchez ce motif sur une base de faillence", "PimEyes pour le visage", "Retracer ce type de document dans les archives généalogiques", etc.) adaptées au type d'objet détecté. Ne sois pas affirmatif si tu n'es pas sûr.
-
-Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: [
-          { text: systemPrompt },
-          { inlineData: { data: base64Data, mimeType: mimeType } }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              titre: { type: Type.STRING, description: "Un titre court et descriptif de l'objet." },
-              categorie: { type: Type.STRING, description: "La catégorie de l'objet (ex: Photographie, Document officiel, Bijou, Mobilier, etc.)." },
-              description_detaillee: { type: Type.STRING, description: "Une description physique détaillée de l'objet (matière, couleurs, motifs, texte visible)." },
-              date_estimee: { type: Type.STRING, description: "Une date ou époque estimée (ex: Années 1920, XIXe siècle, etc.). Mettre 'Inconnue' si impossible." },
-              createur_artiste: { type: Type.STRING, description: "Nom du créateur, auteur ou fabricant." },
-              provenance: { type: Type.STRING, description: "Origine géographique ou pays probable." },
-              etat_conservation: { type: Type.STRING, description: "Évaluation de l'état (ex: Excellent, Usé, Déchiré, Fragile)." },
-              notes_historiques: { type: Type.STRING, description: "Analyse contextuelle ou valeur historique potentielle de cette archive." },
-              pistes_recherche: { type: Type.STRING, description: "Conseils et recommandations d'outils pour vérifier ces informations." }
-            },
-            required: ["titre", "categorie", "description_detaillee", "date_estimee", "createur_artiste", "provenance", "etat_conservation", "notes_historiques", "pistes_recherche"]
-          }
-        }
-      });
-
-      const textResponse = response.text;
-      if (!textResponse) throw new Error("Réponse vide de l'IA.");
-
-      const parsedJSON = JSON.parse(textResponse) as ArchiveData;
-      setArchiveData(parsedJSON);
-      setAppState('review');
-
-    } catch (err: any) {
-      console.error(err);
-      setError(`Erreur Gemini: ${err.message || 'Assurez-vous que l\'image est claire et réessayez.'}`);
-      setAppState('upload');
-    }
   };
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -196,7 +126,7 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
          console.warn("Échec d'envoi vers /api/archives (Normal si vous testez via 'npm run dev' classique au lieu de 'vercel dev'). Simulation succès.");
          setTimeout(() => setAppState('success'), 1500);
       } else {
-         setError(`Erreur serveur webhook: ${err.message}`);
+         setError(`Erreur serveur web: ${err.message}`);
          setAppState('review');
       }
     }
@@ -230,31 +160,10 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
                 <Camera className="w-6 h-6 text-[#1a1a1a]" />
               </div>
               <h2 className="text-4xl font-serif mb-4">Nouvelle Archive</h2>
-              <p className="text-sm text-[#1a1a1a]/60 mb-8 max-w-md mx-auto">
-                Numérisez un document historique via l'appareil photo ou le système local.
+              <p className="text-sm text-[#1a1a1a]/60 mb-12 max-w-md mx-auto">
+                Photographiez ou importez l'image d'un document historique pour l'ajouter à vos archives.
               </p>
               
-              <div className="w-full max-w-md text-left mb-8 space-y-4">
-                <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setUseAI(!useAI)}>
-                  <div className={`w-5 h-5 flex items-center justify-center border transition-colors ${useAI ? 'bg-[#1a1a1a] border-[#1a1a1a]' : 'border-[#1a1a1a]/30 group-hover:border-[#1a1a1a]/60'}`}>
-                    {useAI && <CheckCircle className="w-3 h-3 text-white" />}
-                  </div>
-                  <span className="text-xs uppercase tracking-widest font-bold opacity-80 group-hover:opacity-100 transition-opacity">Activer l'analyse IA (Bonus)</span>
-                </div>
-
-                <div className={`transition-all duration-300 overflow-hidden ${useAI ? 'max-h-40 opacity-100 mb-6' : 'max-h-0 opacity-0'}`}>
-                  <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Prompt IA personnalisé (Optionnel)</label>
-                  <textarea
-                    value={customPrompt}
-                    onChange={(e) => setCustomPrompt(e.target.value)}
-                    placeholder="Ex: Mets l'accent sur les détails vestimentaires ou les tampons postaux..."
-                    rows={2}
-                    className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm resize-none custom-scrollbar"
-                  />
-                  <p className="text-[10px] text-[#1a1a1a]/40 mt-1 italic font-serif">Laissez vide si vous n'avez pas de requête spécifique.</p>
-                </div>
-              </div>
-
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileSelection} />
               
               <div className="flex flex-col sm:flex-row items-center w-full max-w-md gap-4">
@@ -293,7 +202,7 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
               </div>
               <h2 className="text-4xl font-serif mb-4">Archive sauvegardée</h2>
               <p className="text-sm text-[#1a1a1a]/60 mb-12 max-w-md mx-auto">
-                L'objet a bien été envoyé vers votre webhook n8n avec succès. Il fait maintenant partie de votre collection.
+                L'objet a bien été enregistré dans votre base de données MySQL. Il fait maintenant partie de votre collection.
               </p>
               
               <button onClick={resetApp} className="h-14 px-8 border border-[#1a1a1a] flex items-center justify-center space-x-3 hover:bg-[#1a1a1a] hover:text-white transition-colors duration-300">
@@ -305,7 +214,7 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
         </main>
       )}
 
-      {(appState === 'analyzing' || appState === 'review' || appState === 'submitting') && (
+      {(appState === 'review' || appState === 'submitting') && (
         <main className="flex-1 flex flex-col lg:grid lg:grid-cols-12 max-h-[calc(100vh-89px)] overflow-hidden">
           {/* Left Side: Image Preview & Loading state */}
           <div className="col-span-12 lg:col-span-5 bg-[#f5f2ef] border-b lg:border-b-0 lg:border-r border-[#1a1a1a]/10 p-6 md:p-8 flex flex-col min-h-[50vh] lg:min-h-0 relative">
@@ -314,12 +223,6 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
                 <div className="absolute inset-0 border border-[#1a1a1a]/5 p-2">
                   <div className="w-full h-full bg-[#e8e4e1] flex items-center justify-center overflow-hidden shadow-2xl relative">
                     <img src={imagePreview} alt="Archive" className="object-contain w-full h-full grayscale-[0.3]" />
-                    {appState === 'analyzing' && (
-                      <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex flex-col items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-[#1a1a1a] animate-spin mb-4" />
-                        <p className="font-serif italic text-lg shadow-sm">Analyse de l'image...</p>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
@@ -331,11 +234,7 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
                 <span className="sm:hidden">Reprendre</span>
               </button>
               <div className="h-px flex-1 mx-4 bg-[#1a1a1a]/20"></div>
-              {appState === 'analyzing' ? (
-                <span className="text-[10px] uppercase font-bold opacity-60">En cours</span>
-              ) : (
-                <span className="text-[10px] uppercase font-bold text-green-700">Analyse IA Terminée</span>
-              )}
+              <span className="text-[10px] uppercase font-bold opacity-60">Saisie Manuelle</span>
             </div>
           </div>
 
@@ -348,64 +247,54 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
               </div>
             )}
 
-            {appState === 'analyzing' && !error && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center animate-pulse">
-                 <h1 className="text-3xl font-serif mb-3 opacity-50">Extraction des données...</h1>
-                 <p className="text-sm text-[#1a1a1a]/50 max-w-xs mx-auto">Veuillez patienter pendant que Gemini identifie les caractéristiques de l'objet.</p>
-              </div>
-            )}
-
-            {(appState === 'review' || appState === 'submitting') && archiveData && (
+            {archiveData && (
               <div className="flex flex-col h-full animate-in slide-in-from-right-8 duration-500">
                 <div className="space-y-8 pr-2 md:pr-4 mb-8 flex-1">
                   <header>
                     <h1 className="text-3xl md:text-4xl font-serif mb-2">
-                       {archiveData.pistes_recherche ? "Vérification des données" : "Saisie des données"}
+                       Saisie des données
                     </h1>
                     <p className="text-sm text-[#1a1a1a]/60">
-                      {archiveData.pistes_recherche ? "Gemini a analysé l'objet. Veuillez impérativement vérifier et valider les détails historiques avant l'archivage." : "Remplissez les détails historiques de votre archive avant de l'ajouter à votre collection."}
+                      Remplissez les détails historiques de votre archive avant de l'ajouter à votre collection.
                     </p>
                   </header>
-
-                  {archiveData.pistes_recherche && (
-                    <div className="bg-[#f5f2ef] border-l-4 border-[#1a1a1a] p-5">
-                       <h3 className="text-[10px] uppercase font-bold tracking-widest opacity-60 mb-2">Conseils d'investigation de l'IA</h3>
-                       <p className="font-serif italic text-sm text-[#1a1a1a]/80 leading-relaxed">{archiveData.pistes_recherche}</p>
-                    </div>
-                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                     <div className="col-span-1 md:col-span-2">
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Titre de l'Objet</label>
-                      <input type="text" name="titre" value={archiveData.titre} onChange={handleInputChange} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none font-serif text-xl" />
+                      <input type="text" name="titre" value={archiveData.titre} onChange={handleInputChange} placeholder="Ex: Montre gousset en argent" className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none font-serif text-xl placeholder:opacity-30" />
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Catégorie</label>
-                      <input type="text" name="categorie" value={archiveData.categorie} onChange={handleInputChange} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm" />
+                      <input type="text" name="categorie" value={archiveData.categorie} onChange={handleInputChange} placeholder="Ex: Horlogerie, Document..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm placeholder:opacity-30" />
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Date Estimée</label>
-                      <input type="text" name="date_estimee" value={archiveData.date_estimee} onChange={handleInputChange} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm" />
+                      <input type="text" name="date_estimee" value={archiveData.date_estimee} onChange={handleInputChange} placeholder="Ex: Fin du 19ème siècle" className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm placeholder:opacity-30" />
                     </div>
                     <div className="col-span-1 md:col-span-2">
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Description Détaillée</label>
-                      <textarea name="description_detaillee" value={archiveData.description_detaillee} onChange={handleInputChange} rows={3} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm resize-none custom-scrollbar" />
+                      <textarea name="description_detaillee" value={archiveData.description_detaillee} onChange={handleInputChange} rows={3} placeholder="Matière, dimensions, inscriptions visibles..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm resize-none custom-scrollbar placeholder:opacity-30" />
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Créateur / Auteur</label>
-                      <input type="text" name="createur_artiste" value={archiveData.createur_artiste} onChange={handleInputChange} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm" />
+                      <input type="text" name="createur_artiste" value={archiveData.createur_artiste} onChange={handleInputChange} placeholder="Fabricant, artisan..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm placeholder:opacity-30" />
                     </div>
                     <div>
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">État de Conservation</label>
-                      <input type="text" name="etat_conservation" value={archiveData.etat_conservation} onChange={handleInputChange} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm" />
+                      <input type="text" name="etat_conservation" value={archiveData.etat_conservation} onChange={handleInputChange} placeholder="Ex: Bon état, traces d'usure..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm placeholder:opacity-30" />
                     </div>
                     <div className="col-span-1 md:col-span-2">
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Provenance / Origine</label>
-                      <input type="text" name="provenance" value={archiveData.provenance} onChange={handleInputChange} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm" />
+                      <input type="text" name="provenance" value={archiveData.provenance} onChange={handleInputChange} placeholder="Lieu d'origine, héritage familial..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm placeholder:opacity-30" />
                     </div>
                     <div className="col-span-1 md:col-span-2">
                       <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Notes Historiques</label>
-                      <textarea name="notes_historiques" value={archiveData.notes_historiques} onChange={handleInputChange} rows={3} className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm resize-none custom-scrollbar" />
+                      <textarea name="notes_historiques" value={archiveData.notes_historiques} onChange={handleInputChange} rows={3} placeholder="Contexte, anecdotes, valeur sentimentale..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm resize-none custom-scrollbar placeholder:opacity-30" />
+                    </div>
+                    <div className="col-span-1 md:col-span-2">
+                      <label className="text-[10px] uppercase font-bold tracking-widest opacity-40 block mb-2">Pistes de Recherche</label>
+                      <textarea name="pistes_recherche" value={archiveData.pistes_recherche} onChange={handleInputChange} rows={2} placeholder="Idées pour de futures recherches genealogiques..." className="w-full bg-transparent border-b border-[#1a1a1a]/20 py-2 focus:border-[#1a1a1a] outline-none text-sm resize-none custom-scrollbar placeholder:opacity-30" />
                     </div>
                   </div>
                 </div>
@@ -419,11 +308,11 @@ Directives supplémentaires de l'utilisateur : ${customPrompt || 'Aucune.'}`;
                     {appState === 'submitting' ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span className="text-xs uppercase tracking-widest font-bold">Envoi...</span>
+                        <span className="text-xs uppercase tracking-widest font-bold">Sauvegarde...</span>
                       </>
                     ) : (
                       <>
-                        <span className="text-xs uppercase tracking-widest font-bold">Archiver l'objet (n8n)</span>
+                        <span className="text-xs uppercase tracking-widest font-bold">Sauvegarder l'archive</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
